@@ -8,6 +8,7 @@ use ratatui::{
     widgets::{Block, List, ListItem, Paragraph},
     DefaultTerminal, Frame,
 };
+use std::fs;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -24,9 +25,12 @@ If run without the interactive mode:
   - If provided with -f FILE, it should not take a TEXT argument, only PATTERN is required. Otherwise, it will exit.
 
 If run in interactive mode (-i):
+  - PATTERN, TEXT, and FILE entries are automatically filled in when entering interactive mode.
   - If one of PATTERN, TEXT, or FILE is provided, the TUI fields will be pre-filled and you can add or modify as needed.
   - If no PATTERN, TEXT, or FILE is provided, you will be prompted to input both PATTERN and TEXT interactively.
-"
+  - If a user provides FILE and interactive mode without providing a PATTERN, it will ask for a PATTERN first. Once provided, it will import the file into the expressions list and apply the pattern.
+  - The user is able to provide a new pattern at any time. This will be applied to all entries added afterward.
+  - The user is able to provide a new entry at any time. This will be added to the expressions list with the current pattern."
         )
         .override_usage("regexer [OPTIONS] [PATTERN] [TEXT]")
         .after_help(
@@ -86,9 +90,8 @@ For more information, visit:
     let pattern = matches.get_one::<String>("pattern");
     let text = matches.get_one::<String>("text");
 
-    // Check argument conditions:
-    // If no arguments provided at all
-    let no_args_provided = !interactive && file.is_none() && output.is_none() && pattern.is_none() && text.is_none();
+    let no_args_provided =
+        !interactive && file.is_none() && output.is_none() && pattern.is_none() && text.is_none();
     if no_args_provided {
         eprintln!("No arguments provided. See --help for usage.");
         std::process::exit(1);
@@ -109,10 +112,6 @@ For more information, visit:
                 std::process::exit(1);
             }
         }
-    } else {
-        // Interactive mode conditions:
-        // If pattern/text/file are provided, they will pre-fill fields.
-        // If none are provided, user will input both in TUI.
     }
 
     // Print out what we are doing
@@ -135,6 +134,7 @@ For more information, visit:
 
     if interactive {
         let mut app = App::new();
+
         // Pre-fill if provided:
         if let Some(p) = pattern {
             app.set_pattern(p);
@@ -142,34 +142,53 @@ For more information, visit:
         if let Some(t) = text {
             app.set_text(t);
         }
+        if file.is_some() {
+            app.file = file.map(|f| f.to_string());
+        }
+
+        // If file is provided without a pattern, we must ask for pattern first. So if pattern is empty and file is present:
+        if app.pattern.is_empty() && app.file.is_some() {
+            // Start in pattern editing mode so user can provide pattern first.
+            app.input_mode = InputMode::EditingPattern;
+        }
 
         let terminal = ratatui::init();
         let app_result = app.run(terminal);
         ratatui::restore();
         app_result
     } else {
-        // Just exit after printing arguments in non-interactive mode.
+        // Non-interactive: just exit
         Ok(())
     }
 }
 
+// A single expression entry in the list
+struct ExpressionEntry {
+    pattern: String,
+    text: String,
+    matches: String, // Placeholder for "regex-ed pattern"
+}
+
 /// App holds the state of the application
 struct App {
-    /// Current value of the input box (for text)
+    /// Current text input
     input: String,
-    /// Current pattern (separate from input text)
+    /// Current pattern
     pattern: String,
-    /// Position of cursor in the editor area.
-    character_index: usize,
-    /// Current input mode
+    /// Currently selected input mode
     input_mode: InputMode,
-    /// History of recorded expressions
-    expressions: Vec<String>,
+    /// Stored expressions
+    expressions: Vec<ExpressionEntry>,
+    /// Position of cursor in the input editor.
+    character_index: usize,
+    /// Optional file input
+    file: Option<String>,
 }
 
 enum InputMode {
     Normal,
-    Editing,
+    EditingPattern,
+    EditingText,
 }
 
 impl App {
@@ -180,6 +199,7 @@ impl App {
             input_mode: InputMode::Normal,
             expressions: Vec::new(),
             character_index: 0,
+            file: None,
         }
     }
 
@@ -237,10 +257,38 @@ impl App {
         self.character_index = 0;
     }
 
-    fn submit_expression(&mut self) {
-        self.expressions.push(format!("Pattern: {}, Text: {}", self.pattern, self.input));
+    fn submit_pattern(&mut self) {
+        self.pattern = self.input.clone();
         self.input.clear();
         self.reset_cursor();
+        self.input_mode = InputMode::Normal;
+
+        // If we had a file and no pattern before, now that we have a pattern, let's load file as an expression:
+        if let Some(file_name) = &self.file {
+            if let Ok(contents) = fs::read_to_string(file_name) {
+                self.add_expression(contents);
+            }
+        }
+        self.file = Some("".to_string());
+    }
+
+    fn submit_text(&mut self) {
+        let txt = self.input.clone();
+        self.input.clear();
+        self.reset_cursor();
+        self.input_mode = InputMode::Normal;
+        self.add_expression(txt);
+    }
+
+    fn add_expression(&mut self, text: String) {
+        // For now, "Matches" is a placeholder. Minimal changes.
+        // Future logic could actually apply regex here.
+        let matches = "Matches: ...".to_string();
+        self.expressions.push(ExpressionEntry {
+            pattern: self.pattern.clone(),
+            text,
+            matches,
+        });
     }
 
     fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
@@ -256,23 +304,57 @@ impl App {
                 match self.input_mode {
                     InputMode::Normal => match key.code {
                         KeyCode::Char('e') => {
-                            self.input_mode = InputMode::Editing;
+                            // 'e' previously started editing text, now we have pattern or text modes.
+                            // Let's keep 'e' as editing text for minimal changes.
+                            self.input_mode = InputMode::EditingText;
+                        }
+                        KeyCode::Char('p') => {
+                            // Press p to edit pattern
+                            self.input_mode = InputMode::EditingPattern;
+                            self.input = self.pattern.clone();
+                            self.character_index = self.input.chars().count();
+                        }
+                        KeyCode::Char('t') => {
+                            // Press t to edit text
+                            self.input_mode = InputMode::EditingText;
+                            // Keep current input as is, or start fresh
+                            self.input.clear();
+                            self.reset_cursor();
                         }
                         KeyCode::Char('q') | KeyCode::Esc => {
                             return Ok(());
                         }
                         _ => {}
                     },
-                    InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
-                        KeyCode::Enter => self.submit_expression(),
+                    InputMode::EditingPattern if key.kind == KeyEventKind::Press => {
+                        match key.code {
+                            KeyCode::Enter => self.submit_pattern(),
+                            KeyCode::Char(to_insert) => self.enter_char(to_insert),
+                            KeyCode::Backspace => self.delete_char(),
+                            KeyCode::Left => self.move_cursor_left(),
+                            KeyCode::Right => self.move_cursor_right(),
+                            KeyCode::Esc => {
+                                self.input_mode = InputMode::Normal;
+                                self.input.clear();
+                                self.reset_cursor();
+                            }
+                            _ => {}
+                        }
+                    }
+                    InputMode::EditingText if key.kind == KeyEventKind::Press => match key.code {
+                        KeyCode::Enter => self.submit_text(),
                         KeyCode::Char(to_insert) => self.enter_char(to_insert),
                         KeyCode::Backspace => self.delete_char(),
                         KeyCode::Left => self.move_cursor_left(),
                         KeyCode::Right => self.move_cursor_right(),
-                        KeyCode::Esc => self.input_mode = InputMode::Normal,
+                        KeyCode::Esc => {
+                            self.input_mode = InputMode::Normal;
+                            self.input.clear();
+                            self.reset_cursor();
+                        }
                         _ => {}
                     },
-                    InputMode::Editing => {}
+                    _ => {}
                 }
             }
         }
@@ -295,18 +377,30 @@ impl App {
                     " or ".into(),
                     "Esc".bold(),
                     " to exit, ".into(),
-                    "e".bold(),
-                    " to start typing, or Ctrl+C at any time to exit.".into(),
+                    "p".bold(),
+                    " to edit pattern, ".into(),
+                    "t".bold(),
+                    " to edit text, e to edit text (legacy), or Ctrl+C at any time to exit.".into(),
                 ],
                 Style::default().add_modifier(Modifier::RAPID_BLINK),
             ),
-            InputMode::Editing => (
+            InputMode::EditingPattern => (
                 vec![
-                    "Press ".into(),
+                    "Editing Pattern: Press ".into(),
                     "Esc".bold(),
                     " to stop editing, ".into(),
                     "Enter".bold(),
-                    " to save expression to the list, or Ctrl+C at any time to exit.".into(),
+                    " to submit pattern.".into(),
+                ],
+                Style::default(),
+            ),
+            InputMode::EditingText => (
+                vec![
+                    "Editing Text: Press ".into(),
+                    "Esc".bold(),
+                    " to stop editing, ".into(),
+                    "Enter".bold(),
+                    " to add expression.".into(),
                 ],
                 Style::default(),
             ),
@@ -320,20 +414,28 @@ impl App {
             .block(Block::bordered().title("Pattern"));
         frame.render_widget(pattern_par, pattern_area);
 
+        let input_title = match self.input_mode {
+            InputMode::EditingPattern => "Editing Pattern",
+            InputMode::EditingText => "Editing Text",
+            InputMode::Normal => "Text",
+        };
         let input = Paragraph::new(self.input.as_str())
             .style(match self.input_mode {
                 InputMode::Normal => Style::default(),
-                InputMode::Editing => Style::default().fg(Color::Yellow),
+                InputMode::EditingPattern => Style::default().fg(Color::Green),
+                InputMode::EditingText => Style::default().fg(Color::Yellow),
             })
-            .block(Block::bordered().title("Text"));
+            .block(Block::bordered().title(input_title));
         frame.render_widget(input, input_area);
 
         match self.input_mode {
             InputMode::Normal => {}
-            InputMode::Editing => frame.set_cursor_position(Position::new(
-                input_area.x + self.character_index as u16 + 1,
-                input_area.y + 1,
-            )),
+            InputMode::EditingPattern | InputMode::EditingText => {
+                frame.set_cursor_position(Position::new(
+                    input_area.x + self.character_index as u16 + 1,
+                    input_area.y + 1,
+                ))
+            }
         }
 
         let expressions: Vec<ListItem> = self
@@ -341,7 +443,10 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, m)| {
-                let content = Line::from(Span::raw(format!("{i}: {m}")));
+                let content = Line::from(Span::raw(format!(
+                    "{i}: Pattern: {}, Text: {}, {}",
+                    m.pattern, m.text, m.matches
+                )));
                 ListItem::new(content)
             })
             .collect();

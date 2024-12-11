@@ -10,6 +10,9 @@
 - [ ] should fail early if stuff isn't a directory
 - [ ] figure out how to fail a regex pattern
 - [ ] interactive mode should auto select pattern
+- [ ] parse all of the file and go line by line
+  - [ ] this is related to a bug where, when started with a file and in interactive mode and with a pattern, it outputs weirdly. needs more testing
+- [ ] add testing to be done by the compiler/toolchain. should be easy >:3
 
 ### Larger tasks
 
