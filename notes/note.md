@@ -4,7 +4,12 @@
 
 ## Todo
 
-- [ ] something
+- [ ] unable to swap between patern and text
+- [ ] add more todo stuff
+- [ ] list things needed for the delivery
+- [ ] should fail early if stuff isn't a directory
+- [ ] figure out how to fail a regex pattern
+- [ ] interactive mode should auto select pattern
 
 ### Larger tasks
 

@@ -1,3 +1,4 @@
+use clap::{Arg, ArgAction, Command};
 use color_eyre::Result;
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -7,36 +8,34 @@ use ratatui::{
     widgets::{Block, List, ListItem, Paragraph},
     DefaultTerminal, Frame,
 };
-use std::env;
 
-fn print_usage() {
-    // Print usage message similar to what you provided
-    println!(
-        r#"regexer - a regex CLI/TUI
-Usage: regexer [OPTIONS] [PATTERN] [TEXT]
+fn main() -> Result<()> {
+    color_eyre::install()?;
 
-regexer is a command-line/text-user interface tool for parsing and testing regular expressions.
+    let matches = Command::new("regexer")
+        .version("0.1.0")
+        .about("A regex CLI/TUI tool for parsing and testing regular expressions.")
+        .long_about(
+"regexer is a command-line/text-user interface tool for parsing and testing regular expressions.
 
-Options:
-  -h, --help            Show this help message and exit
-  -v, --version         Show the version of regex-parser and exit
-  -i, --interactive     Launch the interactive TUI mode
-  -f, --file FILE       Read text from a file instead of standard input
-  -o, --output FILE     Write the output to a file instead of standard output
+If run without the interactive mode:
+  - If no arguments are provided, it will exit.
+  - If not provided with both PATTERN and TEXT (and no -f), it will exit.
+  - If provided with -f FILE, it should not take a TEXT argument, only PATTERN is required. Otherwise, it will exit.
 
-Arguments:
-  PATTERN               The regular expression pattern to match
-  TEXT                  The text to search within (use -f to read from a file)
-
-Examples:
-  regex-parser "pattern" "text to search"
-  regex-parser -f input.txt "pattern"
-  regex-parser -i
-
-Interactive Mode:
-  When launched with the -i or --interactive option, regex-parser will start a TUI
-  where you can input patterns and text interactively. Use arrow keys to navigate,
-  and press Enter to confirm your input.
+If run in interactive mode (-i):
+  - If one of PATTERN, TEXT, or FILE is provided, the TUI fields will be pre-filled and you can add or modify as needed.
+  - If no PATTERN, TEXT, or FILE is provided, you will be prompted to input both PATTERN and TEXT interactively.
+"
+        )
+        .override_usage("regexer [OPTIONS] [PATTERN] [TEXT]")
+        .after_help(
+"Examples:
+  regexer \"pattern\" \"text to search\"
+  regexer -f input.txt \"pattern\"
+  regexer -i
+  regexer -i \"pattern\" \"text\"
+  regexer -i -f input.txt \"pattern\"
 
 Exit Codes:
   0   Success
@@ -44,43 +43,128 @@ Exit Codes:
   2   File not found
   3   Other errors
 
-Thank you Tui-textarea/Ratatui User Input example for being my starting point.
-See it at https://github.com/rhysd/tui-textarea and https://github.com/sayanarijit/tui-input/
+For more information, visit:
+  GitHub: https://github.com/Nyxerproject
+  Documentation: <link to docs>"
+        )
+        .arg(
+            Arg::new("pattern")
+                .help("The regular expression pattern to match")
+                .required(false)
+        )
+        .arg(
+            Arg::new("text")
+                .help("The text to search within (use -f to read from a file)")
+                .required(false)
+        )
+        .arg(
+            Arg::new("interactive")
+                .short('i')
+                .long("interactive")
+                .help("Launch the interactive TUI mode")
+                .action(ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("file")
+                .short('f')
+                .long("file")
+                .help("Read text from a file instead of standard input")
+                .value_name("FILE"),
+        )
+        .arg(
+            Arg::new("output")
+                .short('o')
+                .long("output")
+                .help("Write the output to a file instead of standard output")
+                .value_name("FILE"),
+        )
+        .get_matches();
 
-For more information, visit the project's GitHub page at github.com/Nyxerproject or read the documentation."#
-    );
-}
+    let interactive = matches.get_flag("interactive");
+    let file = matches.get_one::<String>("file");
+    let output = matches.get_one::<String>("output");
+    let pattern = matches.get_one::<String>("pattern");
+    let text = matches.get_one::<String>("text");
 
-fn main() -> Result<()> {
-    color_eyre::install()?;
-
-    let args: Vec<String> = env::args().skip(1).collect();
-    if args.is_empty() || args.contains(&"-h".to_string()) || args.contains(&"--help".to_string()) {
-        print_usage();
-        return Ok(());
+    // Check argument conditions:
+    // If no arguments provided at all
+    let no_args_provided = !interactive && file.is_none() && output.is_none() && pattern.is_none() && text.is_none();
+    if no_args_provided {
+        eprintln!("No arguments provided. See --help for usage.");
+        std::process::exit(1);
     }
 
-    if args.contains(&"-i".to_string()) || args.contains(&"--interactive".to_string()) {
+    if !interactive {
+        // Non-interactive mode conditions:
+        if file.is_some() {
+            // File provided: must have pattern, must NOT have text
+            if pattern.is_none() || text.is_some() {
+                eprintln!("When using -f FILE, you must provide PATTERN and must not provide TEXT. See --help for usage.");
+                std::process::exit(1);
+            }
+        } else {
+            // No file: must have both pattern and text
+            if pattern.is_none() || text.is_none() {
+                eprintln!("Non-interactive mode requires both PATTERN and TEXT if not using -f FILE. See --help for usage.");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        // Interactive mode conditions:
+        // If pattern/text/file are provided, they will pre-fill fields.
+        // If none are provided, user will input both in TUI.
+    }
+
+    // Print out what we are doing
+    println!("Running regexer with the following options:");
+    if interactive {
+        println!("  - Running in interactive mode");
+    }
+    if let Some(file_name) = file {
+        println!("  - Using file input: {}", file_name);
+    }
+    if let Some(output_file) = output {
+        println!("  - Output file: {}", output_file);
+    }
+    if let Some(p) = pattern {
+        println!("  - Pattern: {}", p);
+    }
+    if let Some(t) = text {
+        println!("  - Text: {}", t);
+    }
+
+    if interactive {
+        let mut app = App::new();
+        // Pre-fill if provided:
+        if let Some(p) = pattern {
+            app.set_pattern(p);
+        }
+        if let Some(t) = text {
+            app.set_text(t);
+        }
+
         let terminal = ratatui::init();
-        let app_result = App::new().run(terminal);
+        let app_result = app.run(terminal);
         ratatui::restore();
         app_result
     } else {
-        print_usage();
+        // Just exit after printing arguments in non-interactive mode.
         Ok(())
     }
 }
 
 /// App holds the state of the application
 struct App {
-    /// Current value of the input box
+    /// Current value of the input box (for text)
     input: String,
+    /// Current pattern (separate from input text)
+    pattern: String,
     /// Position of cursor in the editor area.
     character_index: usize,
     /// Current input mode
     input_mode: InputMode,
-    /// History of recorded messages
-    messages: Vec<String>,
+    /// History of recorded expressions
+    expressions: Vec<String>,
 }
 
 enum InputMode {
@@ -92,10 +176,20 @@ impl App {
     const fn new() -> Self {
         Self {
             input: String::new(),
+            pattern: String::new(),
             input_mode: InputMode::Normal,
-            messages: Vec::new(),
+            expressions: Vec::new(),
             character_index: 0,
         }
+    }
+
+    fn set_pattern(&mut self, p: &str) {
+        self.pattern = p.to_string();
+    }
+
+    fn set_text(&mut self, t: &str) {
+        self.input = t.to_string();
+        self.character_index = self.input.chars().count();
     }
 
     fn move_cursor_left(&mut self) {
@@ -114,7 +208,6 @@ impl App {
         self.move_cursor_right();
     }
 
-    /// Returns the byte index based on the character position.
     fn byte_index(&self) -> usize {
         self.input
             .char_indices()
@@ -144,8 +237,8 @@ impl App {
         self.character_index = 0;
     }
 
-    fn submit_message(&mut self) {
-        self.messages.push(self.input.clone());
+    fn submit_expression(&mut self) {
+        self.expressions.push(format!("Pattern: {}, Text: {}", self.pattern, self.input));
         self.input.clear();
         self.reset_cursor();
     }
@@ -171,7 +264,7 @@ impl App {
                         _ => {}
                     },
                     InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
-                        KeyCode::Enter => self.submit_message(),
+                        KeyCode::Enter => self.submit_expression(),
                         KeyCode::Char(to_insert) => self.enter_char(to_insert),
                         KeyCode::Backspace => self.delete_char(),
                         KeyCode::Left => self.move_cursor_left(),
@@ -187,11 +280,12 @@ impl App {
 
     fn draw(&self, frame: &mut Frame) {
         let vertical = Layout::vertical([
-            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Min(1),
         ]);
-        let [help_area, input_area, messages_area] = vertical.areas(frame.area());
+        let [help_area, pattern_area, input_area, expressions_area] = vertical.areas(frame.area());
 
         let (msg, style) = match self.input_mode {
             InputMode::Normal => (
@@ -200,9 +294,9 @@ impl App {
                     "q".bold(),
                     " or ".into(),
                     "Esc".bold(),
-                    "to exit, ".into(),
+                    " to exit, ".into(),
                     "e".bold(),
-                    " to start typing.".into(),
+                    " to start typing, or Ctrl+C at any time to exit.".into(),
                 ],
                 Style::default().add_modifier(Modifier::RAPID_BLINK),
             ),
@@ -212,7 +306,7 @@ impl App {
                     "Esc".bold(),
                     " to stop editing, ".into(),
                     "Enter".bold(),
-                    " to save message to list.".into(),
+                    " to save expression to the list, or Ctrl+C at any time to exit.".into(),
                 ],
                 Style::default(),
             ),
@@ -221,12 +315,17 @@ impl App {
         let help_message = Paragraph::new(text);
         frame.render_widget(help_message, help_area);
 
+        let pattern_par = Paragraph::new(self.pattern.as_str())
+            .style(Style::default().fg(Color::Cyan))
+            .block(Block::bordered().title("Pattern"));
+        frame.render_widget(pattern_par, pattern_area);
+
         let input = Paragraph::new(self.input.as_str())
             .style(match self.input_mode {
                 InputMode::Normal => Style::default(),
                 InputMode::Editing => Style::default().fg(Color::Yellow),
             })
-            .block(Block::bordered().title("Input"));
+            .block(Block::bordered().title("Text"));
         frame.render_widget(input, input_area);
 
         match self.input_mode {
@@ -237,8 +336,8 @@ impl App {
             )),
         }
 
-        let messages: Vec<ListItem> = self
-            .messages
+        let expressions: Vec<ListItem> = self
+            .expressions
             .iter()
             .enumerate()
             .map(|(i, m)| {
@@ -246,7 +345,7 @@ impl App {
                 ListItem::new(content)
             })
             .collect();
-        let messages = List::new(messages).block(Block::bordered().title("Messages"));
-        frame.render_widget(messages, messages_area);
+        let expressions = List::new(expressions).block(Block::bordered().title("Expressions"));
+        frame.render_widget(expressions, expressions_area);
     }
 }
