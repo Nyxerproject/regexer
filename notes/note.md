@@ -4,15 +4,18 @@
 
 ## Todo
 
-- [ ] unable to swap between patern and text
-- [ ] add more todo stuff
+- [x] unable to swap between patern and text
 - [ ] list things needed for the delivery
-- [ ] should fail early if stuff isn't a directory
+- [ ] should fail early if -f isn't a directory
+- [ ] should fail early if pattern is a directory
 - [ ] figure out how to fail a regex pattern
 - [ ] interactive mode should auto select pattern
 - [ ] parse all of the file and go line by line
   - [ ] this is related to a bug where, when started with a file and in interactive mode and with a pattern, it outputs weirdly. needs more testing
 - [ ] add testing to be done by the compiler/toolchain. should be easy >:3
+- [ ] when doing regexer pattern -f file -i, the file doesn't get added. to the expressions table. instead, it only gets parsed once and only once when the pattern is first edited
+- [ ] use silicon to make pretty code
+- [ ] -f files should be parsed as a list of entries seperated by newlines
 
 ### Larger tasks
 

@@ -10,6 +10,16 @@ use ratatui::{
 };
 use std::fs;
 
+use regex::Regex; // We will still rely on regex crate if parser=builtin
+
+mod custom_regex;
+use custom_regex::CustomRegex;
+
+enum ParserChoice {
+    Builtin,
+    Custom,
+}
+
 fn main() -> Result<()> {
     color_eyre::install()?;
 
@@ -30,7 +40,9 @@ If run in interactive mode (-i):
   - If no PATTERN, TEXT, or FILE is provided, you will be prompted to input both PATTERN and TEXT interactively.
   - If a user provides FILE and interactive mode without providing a PATTERN, it will ask for a PATTERN first. Once provided, it will import the file into the expressions list and apply the pattern.
   - The user is able to provide a new pattern at any time. This will be applied to all entries added afterward.
-  - The user is able to provide a new entry at any time. This will be added to the expressions list with the current pattern."
+  - The user is able to provide a new entry at any time. This will be added to the expressions list with the current pattern.
+
+Use --parser to select the regex parser: 'builtin' uses the standard 'regex' crate, 'custom' uses the custom parser in regex.rs."
         )
         .override_usage("regexer [OPTIONS] [PATTERN] [TEXT]")
         .after_help(
@@ -82,6 +94,13 @@ For more information, visit:
                 .help("Write the output to a file instead of standard output")
                 .value_name("FILE"),
         )
+        .arg(
+            Arg::new("parser")
+                .long("parser")
+                .help("Select the regex parser to use: builtin or custom")
+                .value_parser(["builtin", "custom"])
+                .default_value("builtin")
+        )
         .get_matches();
 
     let interactive = matches.get_flag("interactive");
@@ -89,6 +108,12 @@ For more information, visit:
     let output = matches.get_one::<String>("output");
     let pattern = matches.get_one::<String>("pattern");
     let text = matches.get_one::<String>("text");
+    let parser_str = matches.get_one::<String>("parser").unwrap();
+    let parser_choice = match parser_str.as_str() {
+        "builtin" => ParserChoice::Builtin,
+        "custom" => ParserChoice::Custom,
+        _ => ParserChoice::Builtin,
+    };
 
     let no_args_provided =
         !interactive && file.is_none() && output.is_none() && pattern.is_none() && text.is_none();
@@ -98,7 +123,6 @@ For more information, visit:
     }
 
     if !interactive {
-        // Non-interactive mode conditions:
         if file.is_some() {
             // File provided: must have pattern, must NOT have text
             if pattern.is_none() || text.is_some() {
@@ -131,9 +155,10 @@ For more information, visit:
     if let Some(t) = text {
         println!("  - Text: {}", t);
     }
+    //println!("  - Parser: {:?}", parser_choice);
 
     if interactive {
-        let mut app = App::new();
+        let mut app = App::new(parser_choice);
 
         // Pre-fill if provided:
         if let Some(p) = pattern {
@@ -146,9 +171,8 @@ For more information, visit:
             app.file = file.map(|f| f.to_string());
         }
 
-        // If file is provided without a pattern, we must ask for pattern first. So if pattern is empty and file is present:
+        // If file is provided without a pattern, we must ask for pattern first.
         if app.pattern.is_empty() && app.file.is_some() {
-            // Start in pattern editing mode so user can provide pattern first.
             app.input_mode = InputMode::EditingPattern;
         }
 
@@ -157,32 +181,26 @@ For more information, visit:
         ratatui::restore();
         app_result
     } else {
-        // Non-interactive: just exit
+        // Non-interactive: Just exit for now.
+        // In a future step, you could apply pattern to text here if desired.
         Ok(())
     }
 }
 
-// A single expression entry in the list
 struct ExpressionEntry {
     pattern: String,
     text: String,
-    matches: String, // Placeholder for "regex-ed pattern"
+    matches: String,
 }
 
-/// App holds the state of the application
 struct App {
-    /// Current text input
     input: String,
-    /// Current pattern
     pattern: String,
-    /// Currently selected input mode
     input_mode: InputMode,
-    /// Stored expressions
     expressions: Vec<ExpressionEntry>,
-    /// Position of cursor in the input editor.
     character_index: usize,
-    /// Optional file input
     file: Option<String>,
+    parser_choice: ParserChoice,
 }
 
 enum InputMode {
@@ -192,7 +210,7 @@ enum InputMode {
 }
 
 impl App {
-    const fn new() -> Self {
+    fn new(parser_choice: ParserChoice) -> Self {
         Self {
             input: String::new(),
             pattern: String::new(),
@@ -200,6 +218,7 @@ impl App {
             expressions: Vec::new(),
             character_index: 0,
             file: None,
+            parser_choice,
         }
     }
 
@@ -263,7 +282,6 @@ impl App {
         self.reset_cursor();
         self.input_mode = InputMode::Normal;
 
-        // If we had a file and no pattern before, now that we have a pattern, let's load file as an expression:
         if let Some(file_name) = &self.file {
             if let Ok(contents) = fs::read_to_string(file_name) {
                 self.add_expression(contents);
@@ -281,9 +299,7 @@ impl App {
     }
 
     fn add_expression(&mut self, text: String) {
-        // For now, "Matches" is a placeholder. Minimal changes.
-        // Future logic could actually apply regex here.
-        let matches = "Matches: ...".to_string();
+        let matches = apply_pattern(&self.pattern, &text, &self.parser_choice);
         self.expressions.push(ExpressionEntry {
             pattern: self.pattern.clone(),
             text,
@@ -304,20 +320,15 @@ impl App {
                 match self.input_mode {
                     InputMode::Normal => match key.code {
                         KeyCode::Char('e') => {
-                            // 'e' previously started editing text, now we have pattern or text modes.
-                            // Let's keep 'e' as editing text for minimal changes.
                             self.input_mode = InputMode::EditingText;
                         }
                         KeyCode::Char('p') => {
-                            // Press p to edit pattern
                             self.input_mode = InputMode::EditingPattern;
                             self.input = self.pattern.clone();
                             self.character_index = self.input.chars().count();
                         }
                         KeyCode::Char('t') => {
-                            // Press t to edit text
                             self.input_mode = InputMode::EditingText;
-                            // Keep current input as is, or start fresh
                             self.input.clear();
                             self.reset_cursor();
                         }
@@ -452,5 +463,49 @@ impl App {
             .collect();
         let expressions = List::new(expressions).block(Block::bordered().title("Expressions"));
         frame.render_widget(expressions, expressions_area);
+    }
+}
+
+/// Apply the pattern depending on parser choice.
+fn apply_pattern(pattern: &str, text: &str, parser_choice: &ParserChoice) -> String {
+    match parser_choice {
+        ParserChoice::Builtin => apply_pattern_builtin(pattern, text),
+        ParserChoice::Custom => apply_pattern_custom(pattern, text),
+    }
+}
+
+fn apply_pattern_builtin(pattern: &str, text: &str) -> String {
+    let regex = match Regex::new(pattern) {
+        Ok(r) => r,
+        Err(e) => return format!("Invalid pattern: {}", e),
+    };
+
+    let mut all_matches = Vec::new();
+    for mat in regex.find_iter(text) {
+        all_matches.push(mat.as_str().to_string());
+    }
+
+    if all_matches.is_empty() {
+        "No matches found.".to_string()
+    } else {
+        format!("Matches: {:?}", all_matches)
+    }
+}
+
+fn apply_pattern_custom(pattern: &str, text: &str) -> String {
+    let regex = match CustomRegex::new(pattern) {
+        Ok(r) => r,
+        Err(e) => return format!("Invalid pattern: {}", e),
+    };
+
+    let mut all_matches = Vec::new();
+    for mat in regex.find_iter(text) {
+        all_matches.push(mat.to_string());
+    }
+
+    if all_matches.is_empty() {
+        "No matches found.".to_string()
+    } else {
+        format!("Matches: {:?}", all_matches)
     }
 }
