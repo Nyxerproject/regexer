@@ -10,15 +10,21 @@ use ratatui::{
 };
 use std::fs;
 
-use regex::Regex; // We will still rely on regex crate if parser=builtin
+use regex::Regex; // Builtin fallback
 
 mod custom_regex;
 use custom_regex::CustomRegex;
-use custom_regex::RegexEngine;
 
-enum ParserChoice {
-    RustLang,
-    Homemade,
+/// Available regex engines.
+enum EngineChoice {
+    Builtin,
+    Custom,
+    Dfa,
+    Hybrid,
+    Onepass,
+    Boundedbacktracker,
+    Pikevm,
+    Meta,
 }
 
 fn main() -> Result<()> {
@@ -43,7 +49,16 @@ If run in interactive mode (-i):
   - The user is able to provide a new pattern at any time. This will be applied to all entries added afterward.
   - The user is able to provide a new entry at any time. This will be added to the expressions list with the current pattern.
 
-Use --parser to select the regex parser: 'rust-lang' uses the standard 'regex' crate, 'homemade' uses the custom parser in regex.rs."
+Use --engine to select the regex engine:
+  - builtin: uses the standard 'regex' crate
+  - custom: uses the custom parser in regex.rs
+  - dfa: uses a fully compiled DFA engine (from regex-automata)
+  - hybrid: uses a lazy DFA-based engine (from regex-automata)
+  - onepass: uses a one-pass DFA engine (from regex-automata)
+  - boundedbacktracker: uses a bounded backtracking engine (from regex-automata)
+  - pikevm: uses a PikeVM-based engine (from regex-automata)
+  - meta: uses the meta engine combining all of the above (from regex-automata)
+"
         )
         .override_usage("regexer [OPTIONS] [PATTERN] [TEXT]")
         .after_help(
@@ -53,12 +68,6 @@ Use --parser to select the regex parser: 'rust-lang' uses the standard 'regex' c
   regexer -i
   regexer -i \"pattern\" \"text\"
   regexer -i -f input.txt \"pattern\"
-
-Exit Codes:
-  0   Success
-  1   Error in regex pattern
-  2   File not found
-  3   Other errors
 
 For more information, visit:
   GitHub: https://github.com/Nyxerproject
@@ -96,11 +105,11 @@ For more information, visit:
                 .value_name("FILE"),
         )
         .arg(
-            Arg::new("parser")
-                .long("parser")
-                .help("Select the regex parser to use: rust-lang or homemade")
-                .value_parser(["rust-lang", "homemade"])
-                .default_value("homemade")
+            Arg::new("engine")
+                .long("engine")
+                .help("Select the regex engine to use: builtin, custom, dfa, hybrid, onepass, boundedbacktracker, pikevm, meta")
+                .value_parser(["builtin", "custom", "dfa", "hybrid", "onepass", "boundedbacktracker", "pikevm", "meta"])
+                .default_value("builtin")
         )
         .get_matches();
 
@@ -109,11 +118,17 @@ For more information, visit:
     let output = matches.get_one::<String>("output");
     let pattern = matches.get_one::<String>("pattern");
     let text = matches.get_one::<String>("text");
-    let parser_str = matches.get_one::<String>("parser").unwrap();
-    let parser_choice = match parser_str.as_str() {
-        "rust-lang" => ParserChoice::RustLang,
-        "homemade" => ParserChoice::Homemade,
-        _ => ParserChoice::Homemade,
+    let engine_str = matches.get_one::<String>("engine").unwrap();
+    let engine_choice = match engine_str.as_str() {
+        "builtin" => EngineChoice::Builtin,
+        "custom" => EngineChoice::Custom,
+        "dfa" => EngineChoice::Dfa,
+        "hybrid" => EngineChoice::Hybrid,
+        "onepass" => EngineChoice::Onepass,
+        "boundedbacktracker" => EngineChoice::Boundedbacktracker,
+        "pikevm" => EngineChoice::Pikevm,
+        "meta" => EngineChoice::Meta,
+        _ => EngineChoice::Builtin,
     };
 
     let no_args_provided =
@@ -125,13 +140,11 @@ For more information, visit:
 
     if !interactive {
         if file.is_some() {
-            // File provided: must have pattern, must NOT have text
             if pattern.is_none() || text.is_some() {
                 eprintln!("When using -f FILE, you must provide PATTERN and must not provide TEXT. See --help for usage.");
                 std::process::exit(1);
             }
         } else {
-            // No file: must have both pattern and text
             if pattern.is_none() || text.is_none() {
                 eprintln!("Non-interactive mode requires both PATTERN and TEXT if not using -f FILE. See --help for usage.");
                 std::process::exit(1);
@@ -156,12 +169,13 @@ For more information, visit:
     if let Some(t) = text {
         println!("  - Text: {}", t);
     }
-    //println!("  - Parser: {:?}", parser_choice);
+    if let Some(engine_choice) = text {
+        println!("  - Engine: {}", engine_choice);
+    }
 
     if interactive {
-        let mut app = App::new(parser_choice);
+        let mut app = App::new(engine_choice);
 
-        // Pre-fill if provided:
         if let Some(p) = pattern {
             app.set_pattern(p);
         }
@@ -172,7 +186,6 @@ For more information, visit:
             app.file = file.map(|f| f.to_string());
         }
 
-        // If file is provided without a pattern, we must ask for pattern first.
         if app.pattern.is_empty() && app.file.is_some() {
             app.input_mode = InputMode::EditingPattern;
         }
@@ -182,8 +195,6 @@ For more information, visit:
         ratatui::restore();
         app_result
     } else {
-        // Non-interactive: Just exit for now.
-        // In a future step, you could apply pattern to text here if desired.
         Ok(())
     }
 }
@@ -201,7 +212,7 @@ struct App {
     expressions: Vec<ExpressionEntry>,
     character_index: usize,
     file: Option<String>,
-    parser_choice: ParserChoice,
+    engine_choice: EngineChoice,
 }
 
 enum InputMode {
@@ -211,7 +222,7 @@ enum InputMode {
 }
 
 impl App {
-    fn new(parser_choice: ParserChoice) -> Self {
+    fn new(engine_choice: EngineChoice) -> Self {
         Self {
             input: String::new(),
             pattern: String::new(),
@@ -219,7 +230,7 @@ impl App {
             expressions: Vec::new(),
             character_index: 0,
             file: None,
-            parser_choice,
+            engine_choice,
         }
     }
 
@@ -300,7 +311,7 @@ impl App {
     }
 
     fn add_expression(&mut self, text: String) {
-        let matches = apply_pattern(&self.pattern, &text, &self.parser_choice);
+        let matches = apply_pattern(&self.pattern, &text, &self.engine_choice);
         self.expressions.push(ExpressionEntry {
             pattern: self.pattern.clone(),
             text,
@@ -467,11 +478,21 @@ impl App {
     }
 }
 
-/// Apply the pattern depending on parser choice.
-fn apply_pattern(pattern: &str, text: &str, parser_choice: &ParserChoice) -> String {
-    match parser_choice {
-        ParserChoice::RustLang => apply_pattern_builtin(pattern, text),
-        ParserChoice::Homemade => apply_pattern_custom(pattern, text),
+/// Apply pattern depending on engine choice.
+///
+/// Note: Most `regex-automata` engines are not actually integrated here.
+/// For now, we return placeholder messages. You should integrate `regex-automata`
+/// crates and implement real logic later.
+fn apply_pattern(pattern: &str, text: &str, engine_choice: &EngineChoice) -> String {
+    match engine_choice {
+        EngineChoice::Builtin => apply_pattern_builtin(pattern, text),
+        EngineChoice::Custom => apply_pattern_custom(pattern, text),
+        EngineChoice::Dfa => "DFA engine (placeholder)".to_string(),
+        EngineChoice::Hybrid => "Hybrid (lazy DFA) engine (placeholder)".to_string(),
+        EngineChoice::Onepass => "One-pass DFA engine (placeholder)".to_string(),
+        EngineChoice::Boundedbacktracker => "Bounded backtracking engine (placeholder)".to_string(),
+        EngineChoice::Pikevm => "PikeVM engine (placeholder)".to_string(),
+        EngineChoice::Meta => "Meta engine (placeholder)".to_string(),
     }
 }
 
@@ -480,12 +501,10 @@ fn apply_pattern_builtin(pattern: &str, text: &str) -> String {
         Ok(r) => r,
         Err(e) => return format!("Invalid pattern: {}", e),
     };
-
     let mut all_matches = Vec::new();
     for mat in regex.find_iter(text) {
         all_matches.push(mat.as_str().to_string());
     }
-
     if all_matches.is_empty() {
         "No matches found.".to_string()
     } else {
@@ -494,19 +513,16 @@ fn apply_pattern_builtin(pattern: &str, text: &str) -> String {
 }
 
 fn apply_pattern_custom(pattern: &str, text: &str) -> String {
-    let regex = match CustomRegex::new(pattern) {
-        Ok(r) => r,
-        Err(e) => return format!("Invalid pattern: {}", e),
-    };
-
-    let mut all_matches = Vec::new();
-    for mat in regex.find_iter(text) {
-        all_matches.push(mat.to_string());
-    }
-
-    if all_matches.is_empty() {
-        "No matches found.".to_string()
-    } else {
-        format!("Matches: {:?}", all_matches)
+    let cr = CustomRegex::new(pattern);
+    match cr {
+        Ok(parser) => {
+            let all_matches = parser.find_iter(text);
+            if all_matches.is_empty() {
+                "No matches found.".to_string()
+            } else {
+                format!("Matches: {:?}", all_matches)
+            }
+        }
+        Err(e) => format!("Invalid pattern: {}", e),
     }
 }

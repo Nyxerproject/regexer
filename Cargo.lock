@@ -273,6 +273,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dfa"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e68a4389af4541b9a4a47c467b5ca0b89a857e9a7a24f96db0aaac076fd09af"
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -618,6 +624,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "crossterm",
+ "dfa",
  "ratatui",
  "regex",
  "tui-textarea",
