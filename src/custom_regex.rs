@@ -41,3 +41,33 @@ impl CustomRegex {
         results
     }
 }
+
+pub struct RegexEngine {
+    pattern: String,
+}
+
+impl RegexEngine {
+    pub fn new(pattern: &str) -> Result<RegexEngine, RegexError> {
+        if pattern.is_empty() {
+            return Err(RegexError("Empty pattern".to_string()));
+        }
+        Ok(RegexEngine {
+            pattern: pattern.to_string(),
+        })
+    }
+
+    pub fn find_iter<'a>(&self, text: &'a str) -> Vec<&'a str> {
+        let mut results = Vec::new();
+        let mut start = 0;
+        let pattern = &self.pattern;
+
+        while let Some(pos) = text[start..].find(pattern) {
+            let abs_pos = start + pos;
+            let matched = &text[abs_pos..abs_pos + pattern.len()];
+            results.push(matched);
+            start = abs_pos + pattern.len();
+        }
+
+        results
+    }
+}

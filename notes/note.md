@@ -16,11 +16,18 @@
 - [ ] when doing regexer pattern -f file -i, the file doesn't get added. to the expressions table. instead, it only gets parsed once and only once when the pattern is first edited
 - [ ] use silicon to make pretty code
 - [ ] -f files should be parsed as a list of entries seperated by newlines
+- [ ] implement very ez and baby basic regex handeler for "homebrew" for engins
+- [ ] add modified std_lib to engins
+  - [ ] it should implemnet a paper that makes regex go faster
+- [ ] create custom meta regex
+  - it should try to use my own regex stuff first
+  - if it fails, try the next one.
+  - It will eventually get to meta::regex and that will for sure work
 
 ### Larger tasks
 
 - Program Algorithm
-- Make CLI
+- Make CLI/TUI
 - Make Slides
 - Make video
 

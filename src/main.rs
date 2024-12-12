@@ -14,10 +14,11 @@ use regex::Regex; // We will still rely on regex crate if parser=builtin
 
 mod custom_regex;
 use custom_regex::CustomRegex;
+use custom_regex::RegexEngine;
 
 enum ParserChoice {
-    Builtin,
-    Custom,
+    RustLang,
+    Homemade,
 }
 
 fn main() -> Result<()> {
@@ -42,7 +43,7 @@ If run in interactive mode (-i):
   - The user is able to provide a new pattern at any time. This will be applied to all entries added afterward.
   - The user is able to provide a new entry at any time. This will be added to the expressions list with the current pattern.
 
-Use --parser to select the regex parser: 'builtin' uses the standard 'regex' crate, 'custom' uses the custom parser in regex.rs."
+Use --parser to select the regex parser: 'rust-lang' uses the standard 'regex' crate, 'homemade' uses the custom parser in regex.rs."
         )
         .override_usage("regexer [OPTIONS] [PATTERN] [TEXT]")
         .after_help(
@@ -97,9 +98,9 @@ For more information, visit:
         .arg(
             Arg::new("parser")
                 .long("parser")
-                .help("Select the regex parser to use: builtin or custom")
-                .value_parser(["builtin", "custom"])
-                .default_value("builtin")
+                .help("Select the regex parser to use: rust-lang or homemade")
+                .value_parser(["rust-lang", "homemade"])
+                .default_value("homemade")
         )
         .get_matches();
 
@@ -110,9 +111,9 @@ For more information, visit:
     let text = matches.get_one::<String>("text");
     let parser_str = matches.get_one::<String>("parser").unwrap();
     let parser_choice = match parser_str.as_str() {
-        "builtin" => ParserChoice::Builtin,
-        "custom" => ParserChoice::Custom,
-        _ => ParserChoice::Builtin,
+        "rust-lang" => ParserChoice::RustLang,
+        "homemade" => ParserChoice::Homemade,
+        _ => ParserChoice::Homemade,
     };
 
     let no_args_provided =
@@ -469,8 +470,8 @@ impl App {
 /// Apply the pattern depending on parser choice.
 fn apply_pattern(pattern: &str, text: &str, parser_choice: &ParserChoice) -> String {
     match parser_choice {
-        ParserChoice::Builtin => apply_pattern_builtin(pattern, text),
-        ParserChoice::Custom => apply_pattern_custom(pattern, text),
+        ParserChoice::RustLang => apply_pattern_builtin(pattern, text),
+        ParserChoice::Homemade => apply_pattern_custom(pattern, text),
     }
 }
 

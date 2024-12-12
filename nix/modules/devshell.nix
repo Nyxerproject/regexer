@@ -16,6 +16,7 @@
         just
         direnv
         nixd # Nix language server
+        bacon
         cargo-watch
         config.process-compose.cargo-doc-live.outputs.package
       ];
