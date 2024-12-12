@@ -112,3 +112,4 @@ fn apply_pattern_custommeta(pattern: &str, text: &str) -> String {
         }
     }
 }
+

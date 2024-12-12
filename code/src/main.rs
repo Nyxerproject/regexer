@@ -7,7 +7,6 @@ mod custom_regex;
 mod engines; // The custom regex module you already have
 
 use app::App;
-use engines::{apply_pattern, EngineChoice}; // We'll use apply_pattern inside App as needed
 
 fn main() -> Result<()> {
     color_eyre::install()?;
