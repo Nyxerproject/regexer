@@ -25,11 +25,13 @@
 - [ ] add modified std_lib to engins
 - [ ] can i make different DFA algos work togeather?
 - [ ] can I use DFA from regex-automita
-  - [ ] it should implemnet a paper that makes regex go faster
+  - [ ] it should implemnet a paper that makes regex go fasterintroduction
 - [ ] create custom meta regex
   - it should try to use my own regex stuff first
   - if it fails, try the next one.
   - It will eventually get to meta::regex and that will for sure work
+- [ ] add restrictions
+  - only ascii/UTF-8
 
 ### Larger tasks
 

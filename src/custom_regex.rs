@@ -1,4 +1,5 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
+// disclosure; I used these sites as reference while making this: https://jneem.github.io/regex-dfa/src/regex_dfa/src/regex.rs.html?search=
 enum RegexAST {
     Empty,                                // ε
     Literal(char),                        // single character

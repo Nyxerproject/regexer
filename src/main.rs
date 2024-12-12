@@ -8,6 +8,9 @@ use ratatui::{
     widgets::{Block, List, ListItem, Paragraph},
     DefaultTerminal, Frame,
 };
+use regex_automata::dfa::onepass::DFA;
+use regex_automata::nfa::thompson::pikevm::PikeVM;
+use regex_automata::{nfa::thompson::backtrack::BoundedBacktracker, Match};
 use std::fs;
 
 use regex::Regex; // Builtin fallback
@@ -15,7 +18,6 @@ use regex::Regex; // Builtin fallback
 mod custom_regex;
 use custom_regex::CustomRegex;
 
-/// Available regex engines.
 enum EngineChoice {
     Builtin,
     Custom,
@@ -25,6 +27,7 @@ enum EngineChoice {
     Boundedbacktracker,
     Pikevm,
     Meta,
+    Custommeta, // New engine
 }
 
 fn main() -> Result<()> {
@@ -36,42 +39,18 @@ fn main() -> Result<()> {
         .long_about(
 "regexer is a command-line/text-user interface tool for parsing and testing regular expressions.
 
-If run without the interactive mode:
-  - If no arguments are provided, it will exit.
-  - If not provided with both PATTERN and TEXT (and no -f), it will exit.
-  - If provided with -f FILE, it should not take a TEXT argument, only PATTERN is required. Otherwise, it will exit.
-
-If run in interactive mode (-i):
-  - PATTERN, TEXT, and FILE entries are automatically filled in when entering interactive mode.
-  - If one of PATTERN, TEXT, or FILE is provided, the TUI fields will be pre-filled and you can add or modify as needed.
-  - If no PATTERN, TEXT, or FILE is provided, you will be prompted to input both PATTERN and TEXT interactively.
-  - If a user provides FILE and interactive mode without providing a PATTERN, it will ask for a PATTERN first. Once provided, it will import the file into the expressions list and apply the pattern.
-  - The user is able to provide a new pattern at any time. This will be applied to all entries added afterward.
-  - The user is able to provide a new entry at any time. This will be added to the expressions list with the current pattern.
-
+...
 Use --engine to select the regex engine:
-  - builtin: uses the standard 'regex' crate
-  - custom: uses the custom parser in regex.rs
-  - dfa: uses a fully compiled DFA engine (from regex-automata)
-  - hybrid: uses a lazy DFA-based engine (from regex-automata)
-  - onepass: uses a one-pass DFA engine (from regex-automata)
-  - boundedbacktracker: uses a bounded backtracking engine (from regex-automata)
-  - pikevm: uses a PikeVM-based engine (from regex-automata)
-  - meta: uses the meta engine combining all of the above (from regex-automata)
+  - builtin
+  - custom
+  - dfa
+  - hybrid
+  - onepass
+  - boundedbacktracker
+  - pikevm
+  - meta
+  - custommeta (tries CustomRegex first, verify with builtin, fallback to builtin on error)
 "
-        )
-        .override_usage("regexer [OPTIONS] [PATTERN] [TEXT]")
-        .after_help(
-"Examples:
-  regexer \"pattern\" \"text to search\"
-  regexer -f input.txt \"pattern\"
-  regexer -i
-  regexer -i \"pattern\" \"text\"
-  regexer -i -f input.txt \"pattern\"
-
-For more information, visit:
-  GitHub: https://github.com/Nyxerproject
-  Documentation: <link to docs>"
         )
         .arg(
             Arg::new("pattern")
@@ -107,8 +86,8 @@ For more information, visit:
         .arg(
             Arg::new("engine")
                 .long("engine")
-                .help("Select the regex engine to use: builtin, custom, dfa, hybrid, onepass, boundedbacktracker, pikevm, meta")
-                .value_parser(["builtin", "custom", "dfa", "hybrid", "onepass", "boundedbacktracker", "pikevm", "meta"])
+                .help("Select the regex engine to use: builtin, custom, dfa, hybrid, onepass, boundedbacktracker, pikevm, meta, custommeta")
+                .value_parser(["builtin", "custom", "dfa", "hybrid", "onepass", "boundedbacktracker", "pikevm", "meta", "custommeta"])
                 .default_value("builtin")
         )
         .get_matches();
@@ -128,6 +107,7 @@ For more information, visit:
         "boundedbacktracker" => EngineChoice::Boundedbacktracker,
         "pikevm" => EngineChoice::Pikevm,
         "meta" => EngineChoice::Meta,
+        "custommeta" => EngineChoice::Custommeta,
         _ => EngineChoice::Builtin,
     };
 
@@ -152,7 +132,6 @@ For more information, visit:
         }
     }
 
-    // Print out what we are doing
     println!("Running regexer with the following options:");
     if interactive {
         println!("  - Running in interactive mode");
@@ -195,6 +174,7 @@ For more information, visit:
         ratatui::restore();
         app_result
     } else {
+        // Non-interactive: no TUI
         Ok(())
     }
 }
@@ -477,22 +457,17 @@ impl App {
         frame.render_widget(expressions, expressions_area);
     }
 }
-
-/// Apply pattern depending on engine choice.
-///
-/// Note: Most `regex-automata` engines are not actually integrated here.
-/// For now, we return placeholder messages. You should integrate `regex-automata`
-/// crates and implement real logic later.
 fn apply_pattern(pattern: &str, text: &str, engine_choice: &EngineChoice) -> String {
     match engine_choice {
         EngineChoice::Builtin => apply_pattern_builtin(pattern, text),
         EngineChoice::Custom => apply_pattern_custom(pattern, text),
-        EngineChoice::Dfa => "DFA engine (placeholder)".to_string(),
-        EngineChoice::Hybrid => "Hybrid (lazy DFA) engine (placeholder)".to_string(),
-        EngineChoice::Onepass => "One-pass DFA engine (placeholder)".to_string(),
-        EngineChoice::Boundedbacktracker => "Bounded backtracking engine (placeholder)".to_string(),
-        EngineChoice::Pikevm => "PikeVM engine (placeholder)".to_string(),
-        EngineChoice::Meta => "Meta engine (placeholder)".to_string(),
+        EngineChoice::Dfa => apply_pattern_dfa(pattern, text),
+        EngineChoice::Hybrid => apply_pattern_hybrid(pattern, text),
+        EngineChoice::Onepass => apply_pattern_onepass(pattern, text),
+        EngineChoice::Boundedbacktracker => apply_pattern_bounded_backtracker(pattern, text),
+        EngineChoice::Pikevm => apply_pattern_pikevm(pattern, text),
+        EngineChoice::Meta => apply_pattern_meta(pattern, text),
+        EngineChoice::Custommeta => apply_pattern_custommeta(pattern, text),
     }
 }
 
@@ -501,10 +476,10 @@ fn apply_pattern_builtin(pattern: &str, text: &str) -> String {
         Ok(r) => r,
         Err(e) => return format!("Invalid pattern: {}", e),
     };
-    let mut all_matches = Vec::new();
-    for mat in regex.find_iter(text) {
-        all_matches.push(mat.as_str().to_string());
-    }
+    let all_matches: Vec<_> = regex
+        .find_iter(text)
+        .map(|m| m.as_str().to_string())
+        .collect();
     if all_matches.is_empty() {
         "No matches found.".to_string()
     } else {
@@ -524,5 +499,184 @@ fn apply_pattern_custom(pattern: &str, text: &str) -> String {
             }
         }
         Err(e) => format!("Invalid pattern: {}", e),
+    }
+}
+
+// DFA engine (fully compiled DFAs) via regex-automata
+fn apply_pattern_dfa(pattern: &str, text: &str) -> String {
+    let re = match regex_automata::dfa::regex::Regex::new(pattern) {
+        Ok(r) => r,
+        Err(e) => return format!("Invalid pattern: {}", e),
+    };
+    let all_matches: Vec<_> = re
+        .find_leftmost_iter(text)
+        .map(|m| &text[m])
+        .map(String::from)
+        .collect();
+    if all_matches.is_empty() {
+        "No matches found.".to_string()
+    } else {
+        format!("Matches: {:?}", all_matches)
+    }
+}
+
+// Hybrid (lazy DFA)
+fn apply_pattern_hybrid(pattern: &str, text: &str) -> String {
+    let re = match HybridRegex::new(pattern) {
+        Ok(r) => r,
+        Err(e) => return format!("Invalid pattern: {}", e),
+    };
+    let all_matches: Vec<_> = re
+        .find_leftmost_iter(text)
+        .map(|m| &text[m])
+        .map(String::from)
+        .collect();
+    if all_matches.is_empty() {
+        "No matches found.".to_string()
+    } else {
+        format!("Matches: {:?}", all_matches)
+    }
+}
+
+// One-pass DFA
+fn apply_pattern_onepass(pattern: &str, text: &str) -> String {
+    let dfa = match OnePassDFA::new(pattern) {
+        Ok(d) => d,
+        Err(e) => return format!("Invalid pattern: {}", e),
+    };
+    // OnePassDFA can give us matches. We'll do a simple search from start:
+    // We'll simulate a leftmost search by scanning text:
+    let mut all_matches = Vec::new();
+    let mut start = 0;
+    while start <= text.len() {
+        if let Some((s, e)) = dfa.find_leftmost_fwd_at(text, start) {
+            all_matches.push(text[s..e].to_string());
+            start = e; // move past this match
+        } else {
+            break;
+        }
+    }
+
+    if all_matches.is_empty() {
+        "No matches found.".to_string()
+    } else {
+        format!("Matches: {:?}", all_matches)
+    }
+}
+
+// Bounded backtracker
+fn apply_pattern_bounded_backtracker(pattern: &str, text: &str) -> String {
+    let bt = match BoundedBacktracker::new(pattern) {
+        Ok(b) => b,
+        Err(e) => return format!("Invalid pattern: {}", e),
+    };
+
+    // For BoundedBacktracker, we can try scanning text similarly:
+    let mut all_matches = Vec::new();
+    let mut start = 0;
+    while start <= text.len() {
+        if let Some((s, e)) = bt.find_leftmost_fwd_at(text, start) {
+            all_matches.push(text[s..e].to_string());
+            start = e;
+        } else {
+            break;
+        }
+    }
+
+    if all_matches.is_empty() {
+        "No matches found.".to_string()
+    } else {
+        format!("Matches: {:?}", all_matches)
+    }
+}
+
+// PikeVM
+fn apply_pattern_pikevm(pattern: &str, text: &str) -> String {
+    let pv = match PikeVM::new(pattern) {
+        Ok(p) => p,
+        Err(e) => return format!("Invalid pattern: {}", e),
+    };
+
+    let mut all_matches = Vec::new();
+    let mut start = 0;
+    while start <= text.len() {
+        if let Some((s, e)) = pv.find_leftmost_fwd_at(text, start) {
+            all_matches.push(text[s..e].to_string());
+            start = e;
+        } else {
+            break;
+        }
+    }
+
+    if all_matches.is_empty() {
+        "No matches found.".to_string()
+    } else {
+        format!("Matches: {:?}", all_matches)
+    }
+}
+
+// Meta engine
+fn apply_pattern_meta(pattern: &str, text: &str) -> String {
+    let meta = match MetaRegex::new(pattern) {
+        Ok(m) => m,
+        Err(e) => return format!("Invalid pattern: {}", e),
+    };
+
+    let mut all_matches = Vec::new();
+    let mut start = 0;
+    while start <= text.len() {
+        if let Some((s, e)) = meta.find_leftmost_fwd_at(text, start) {
+            all_matches.push(text[s..e].to_string());
+            start = e;
+        } else {
+            break;
+        }
+    }
+
+    if all_matches.is_empty() {
+        "No matches found.".to_string()
+    } else {
+        format!("Matches: {:?}", all_matches)
+    }
+}
+
+// Custommeta (previous logic):
+fn apply_pattern_custommeta(pattern: &str, text: &str) -> String {
+    let cr = CustomRegex::new(pattern);
+    match cr {
+        Ok(parser) => {
+            let custom_matches = parser.find_iter(text);
+            if custom_matches.is_empty() {
+                eprintln!("customMeta: CustomRegex found no matches, verifying with builtin.");
+                let builtin_result = apply_pattern_builtin(pattern, text);
+                if builtin_result.contains("No matches found")
+                    || builtin_result.contains("Invalid pattern")
+                {
+                    eprintln!("customMeta: Builtin also failed, returning builtin result.");
+                    return builtin_result;
+                } else {
+                    return "No matches found.".to_string();
+                }
+            } else {
+                let builtin_result = apply_pattern_builtin(pattern, text);
+                if builtin_result.contains("Invalid pattern") {
+                    eprintln!("customMeta: CustomRegex succeeded but builtin invalid. Using builtin anyway.");
+                    return builtin_result;
+                }
+                if builtin_result.contains("No matches found") {
+                    eprintln!("customMeta: CustomRegex found matches but builtin found none. Using builtin fallback.");
+                    return builtin_result;
+                }
+                // Both found matches
+                format!("Matches: {:?}", custom_matches)
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "customMeta: CustomRegex error: {}. Falling back to builtin.",
+                e
+            );
+            apply_pattern_builtin(pattern, text)
+        }
     }
 }
