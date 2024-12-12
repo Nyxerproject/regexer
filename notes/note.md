@@ -33,6 +33,14 @@
 - [ ] add restrictions
   - only ascii/UTF-8
 
+
+
+
+  video
+- basics of how algorithm works
+- basics of what it does
+- show code working for completed project
+
 ### Larger tasks
 
 - Program Algorithm
@@ -49,7 +57,7 @@
 - Need 2 to 3.5 min video
 
 ## Resources
-
+- https://blog.burntsushi.net/regex-internals/#the-nfa-data-type
 - add another DFA https://arxiv.org/pdf/2403.16533
 -  https://arxiv.org/pdf/2407.20479 
   - 5.1.1 and 5.1.2

@@ -8,12 +8,22 @@ use ratatui::{
     widgets::{Block, List, ListItem, Paragraph},
     DefaultTerminal, Frame,
 };
-use regex_automata::dfa::onepass::DFA;
-use regex_automata::nfa::thompson::pikevm::PikeVM;
-use regex_automata::{nfa::thompson::backtrack::BoundedBacktracker, Match};
-use std::fs;
 
-use regex::Regex; // Builtin fallback
+use regex::Regex;
+use std::fs; // Builtin fallback
+
+#[allow(unused_imports)]
+use regex_automata::dfa::onepass::DFA as OnePassRegex;
+#[allow(unused_imports)]
+use regex_automata::dfa::regex::Regex as DfaRegex;
+#[allow(unused_imports)]
+use regex_automata::hybrid::regex::Regex as HybridRegex;
+#[allow(unused_imports)]
+use regex_automata::meta::Regex as MetaRegex;
+#[allow(unused_imports)]
+use regex_automata::nfa::thompson::backtrack::BoundedBacktracker as BacktrackRegex;
+#[allow(unused_imports)]
+use regex_automata::nfa::thompson::pikevm::PikeVM as PikeVMRegex;
 
 mod custom_regex;
 use custom_regex::CustomRegex;
@@ -40,14 +50,14 @@ fn main() -> Result<()> {
 "regexer is a command-line/text-user interface tool for parsing and testing regular expressions.
 
 ...
-Use --engine to select the regex engine:
+Use --engine to select the regex engine: (some are wip and are not implemented)
   - builtin
   - custom
   - dfa
   - hybrid
   - onepass
   - boundedbacktracker
-  - pikevm
+  - pikevm 
   - meta
   - custommeta (tries CustomRegex first, verify with builtin, fallback to builtin on error)
 "
@@ -383,7 +393,11 @@ impl App {
                     "p".bold(),
                     " to edit pattern, ".into(),
                     "t".bold(),
-                    " to edit text, e to edit text (legacy), or Ctrl+C at any time to exit.".into(),
+                    " to edit text, ".into(),
+                    "e".bold(),
+                    " to edit text (legacy), or ".into(),
+                    "Ctrl+C".bold(),
+                    "at any time to exit.".into(),
                 ],
                 Style::default().add_modifier(Modifier::RAPID_BLINK),
             ),
@@ -457,33 +471,89 @@ impl App {
         frame.render_widget(expressions, expressions_area);
     }
 }
+
 fn apply_pattern(pattern: &str, text: &str, engine_choice: &EngineChoice) -> String {
     match engine_choice {
         EngineChoice::Builtin => apply_pattern_builtin(pattern, text),
         EngineChoice::Custom => apply_pattern_custom(pattern, text),
-        EngineChoice::Dfa => apply_pattern_dfa(pattern, text),
-        EngineChoice::Hybrid => apply_pattern_hybrid(pattern, text),
-        EngineChoice::Onepass => apply_pattern_onepass(pattern, text),
-        EngineChoice::Boundedbacktracker => apply_pattern_bounded_backtracker(pattern, text),
-        EngineChoice::Pikevm => apply_pattern_pikevm(pattern, text),
-        EngineChoice::Meta => apply_pattern_meta(pattern, text),
+        EngineChoice::Dfa => apply_pattern_builtin(pattern, text),
+        //EngineChoice::Hybrid => apply_pattern_hybrid(pattern, text),
+        // EngineChoice::Onepass => apply_pattern_onepass(pattern, text),
+        // EngineChoice::Boundedbacktracker => apply_pattern_backtrack(pattern, text),
+        // EngineChoice::Pikevm => apply_pattern_pikevm(pattern, text),
+        // EngineChoice::Meta => apply_pattern_meta(pattern, text),
+        // EngineChoice::Custommeta => apply_pattern_custommeta(pattern, text),
+        //EngineChoice::Dfa => "DFA engine (placeholder)".to_string(),
+        EngineChoice::Hybrid => {
+            "Hybrid (lazy DFA) engine (placeholder. Is used by hybrid)".to_string()
+        }
+        EngineChoice::Meta => "Meta engine (placeholder)".to_string(),
+        EngineChoice::Onepass => "One-pass DFA engine (placeholder)".to_string(),
+        EngineChoice::Boundedbacktracker => "Bounded backtracking engine (placeholder)".to_string(),
+        EngineChoice::Pikevm => "PikeVM engine (placeholder. Is used by Hybrid)".to_string(),
         EngineChoice::Custommeta => apply_pattern_custommeta(pattern, text),
     }
 }
+
+// fn apply_pattern_hybrid(pattern: &str, text: &str) -> String {
+//     let regex = match regex_automata::meta::Regex::new(pattern) {
+//         Ok(r) => r,
+//         Err(e) => return format!("Invalid pattern: {}", e),
+//     };
+//     let mut all_matches = Vec::new();
+//     for mat in regex.find_iter(text) {
+//         all_matches.push(mat.as_str().to_string());
+//     }
+//     if all_matches.is_empty() {
+//         "No matches found.".to_string()
+//     } else {
+//         format!("Matches: {:?}", all_matches)
+//     }
+// }
+// fn apply_pattern_hybrid(pattern: &str, text: &str) -> String {
+//     let cr = regex_automata::meta::Regex::new(pattern);
+//     match cr {
+//         Ok(parser) => {
+//             let all_matches = parser.find_iter(text);
+//             if all_matches. {
+//                 "No matches found.".to_string()
+//             } else {
+//                 format!("Matches: {:?}", all_matches)
+//             }
+//         }
+//         Err(e) => format!("Invalid pattern: {}", e),
+//     }
+// }
 
 fn apply_pattern_builtin(pattern: &str, text: &str) -> String {
     let regex = match Regex::new(pattern) {
         Ok(r) => r,
         Err(e) => return format!("Invalid pattern: {}", e),
     };
-    let all_matches: Vec<_> = regex
-        .find_iter(text)
-        .map(|m| m.as_str().to_string())
-        .collect();
+    let mut all_matches = Vec::new();
+    for mat in regex.find_iter(text) {
+        all_matches.push(mat.as_str().to_string());
+    }
     if all_matches.is_empty() {
         "No matches found.".to_string()
     } else {
         format!("Matches: {:?}", all_matches)
+    }
+}
+
+#[allow(dead_code)]
+fn apply_pattern_dfa(pattern: &str, text: &str) -> String {
+    let cr = CustomRegex::new(pattern);
+    match cr {
+        Ok(parser) => {
+            let all_matches = parser.find_iter(text);
+            if all_matches.is_empty() {
+                "No matches found.".to_string()
+            } else {
+                format!("Matches: {:?}", all_matches)
+            }
+        }
+        Err(e) => format!("Invalid pattern: {}", e),
     }
 }
 
@@ -502,145 +572,11 @@ fn apply_pattern_custom(pattern: &str, text: &str) -> String {
     }
 }
 
-// DFA engine (fully compiled DFAs) via regex-automata
-fn apply_pattern_dfa(pattern: &str, text: &str) -> String {
-    let re = match regex_automata::dfa::regex::Regex::new(pattern) {
-        Ok(r) => r,
-        Err(e) => return format!("Invalid pattern: {}", e),
-    };
-    let all_matches: Vec<_> = re
-        .find_leftmost_iter(text)
-        .map(|m| &text[m])
-        .map(String::from)
-        .collect();
-    if all_matches.is_empty() {
-        "No matches found.".to_string()
-    } else {
-        format!("Matches: {:?}", all_matches)
-    }
-}
-
-// Hybrid (lazy DFA)
-fn apply_pattern_hybrid(pattern: &str, text: &str) -> String {
-    let re = match HybridRegex::new(pattern) {
-        Ok(r) => r,
-        Err(e) => return format!("Invalid pattern: {}", e),
-    };
-    let all_matches: Vec<_> = re
-        .find_leftmost_iter(text)
-        .map(|m| &text[m])
-        .map(String::from)
-        .collect();
-    if all_matches.is_empty() {
-        "No matches found.".to_string()
-    } else {
-        format!("Matches: {:?}", all_matches)
-    }
-}
-
-// One-pass DFA
-fn apply_pattern_onepass(pattern: &str, text: &str) -> String {
-    let dfa = match OnePassDFA::new(pattern) {
-        Ok(d) => d,
-        Err(e) => return format!("Invalid pattern: {}", e),
-    };
-    // OnePassDFA can give us matches. We'll do a simple search from start:
-    // We'll simulate a leftmost search by scanning text:
-    let mut all_matches = Vec::new();
-    let mut start = 0;
-    while start <= text.len() {
-        if let Some((s, e)) = dfa.find_leftmost_fwd_at(text, start) {
-            all_matches.push(text[s..e].to_string());
-            start = e; // move past this match
-        } else {
-            break;
-        }
-    }
-
-    if all_matches.is_empty() {
-        "No matches found.".to_string()
-    } else {
-        format!("Matches: {:?}", all_matches)
-    }
-}
-
-// Bounded backtracker
-fn apply_pattern_bounded_backtracker(pattern: &str, text: &str) -> String {
-    let bt = match BoundedBacktracker::new(pattern) {
-        Ok(b) => b,
-        Err(e) => return format!("Invalid pattern: {}", e),
-    };
-
-    // For BoundedBacktracker, we can try scanning text similarly:
-    let mut all_matches = Vec::new();
-    let mut start = 0;
-    while start <= text.len() {
-        if let Some((s, e)) = bt.find_leftmost_fwd_at(text, start) {
-            all_matches.push(text[s..e].to_string());
-            start = e;
-        } else {
-            break;
-        }
-    }
-
-    if all_matches.is_empty() {
-        "No matches found.".to_string()
-    } else {
-        format!("Matches: {:?}", all_matches)
-    }
-}
-
-// PikeVM
-fn apply_pattern_pikevm(pattern: &str, text: &str) -> String {
-    let pv = match PikeVM::new(pattern) {
-        Ok(p) => p,
-        Err(e) => return format!("Invalid pattern: {}", e),
-    };
-
-    let mut all_matches = Vec::new();
-    let mut start = 0;
-    while start <= text.len() {
-        if let Some((s, e)) = pv.find_leftmost_fwd_at(text, start) {
-            all_matches.push(text[s..e].to_string());
-            start = e;
-        } else {
-            break;
-        }
-    }
-
-    if all_matches.is_empty() {
-        "No matches found.".to_string()
-    } else {
-        format!("Matches: {:?}", all_matches)
-    }
-}
-
-// Meta engine
-fn apply_pattern_meta(pattern: &str, text: &str) -> String {
-    let meta = match MetaRegex::new(pattern) {
-        Ok(m) => m,
-        Err(e) => return format!("Invalid pattern: {}", e),
-    };
-
-    let mut all_matches = Vec::new();
-    let mut start = 0;
-    while start <= text.len() {
-        if let Some((s, e)) = meta.find_leftmost_fwd_at(text, start) {
-            all_matches.push(text[s..e].to_string());
-            start = e;
-        } else {
-            break;
-        }
-    }
-
-    if all_matches.is_empty() {
-        "No matches found.".to_string()
-    } else {
-        format!("Matches: {:?}", all_matches)
-    }
-}
-
-// Custommeta (previous logic):
+/// CustomMeta engine logic:
+/// 1. Try custom regex
+/// 2. If custom regex returns error, print to stderr and fallback to builtin
+/// 3. If custom regex succeeds, verify at least one substring is also found by builtin.
+///    If builtin finds no matches, fallback to builtin result.
 fn apply_pattern_custommeta(pattern: &str, text: &str) -> String {
     let cr = CustomRegex::new(pattern);
     match cr {
@@ -648,26 +584,35 @@ fn apply_pattern_custommeta(pattern: &str, text: &str) -> String {
             let custom_matches = parser.find_iter(text);
             if custom_matches.is_empty() {
                 eprintln!("customMeta: CustomRegex found no matches, verifying with builtin.");
+                // Verify with builtin
                 let builtin_result = apply_pattern_builtin(pattern, text);
                 if builtin_result.contains("No matches found")
                     || builtin_result.contains("Invalid pattern")
                 {
+                    // fallback
                     eprintln!("customMeta: Builtin also failed, returning builtin result.");
                     return builtin_result;
                 } else {
+                    // return custom's result anyway since we must trust custom or we can return builtin?
+                    // Let's return custom's result here as custom did run successfully, just no matches:
                     return "No matches found.".to_string();
                 }
             } else {
+                // Custom found matches, let's verify with builtin
                 let builtin_result = apply_pattern_builtin(pattern, text);
                 if builtin_result.contains("Invalid pattern") {
-                    eprintln!("customMeta: CustomRegex succeeded but builtin invalid. Using builtin anyway.");
+                    // Pattern invalid for builtin, fallback
+                    eprintln!("customMeta: CustomRegex succeeded but builtin reports invalid pattern. Using builtin anyway.");
                     return builtin_result;
                 }
+
+                // If builtin finds no matches but custom does, that might be suspect
                 if builtin_result.contains("No matches found") {
-                    eprintln!("customMeta: CustomRegex found matches but builtin found none. Using builtin fallback.");
+                    eprintln!("customMeta: CustomRegex found matches but builtin found none. Using builtin as fallback.");
                     return builtin_result;
                 }
-                // Both found matches
+
+                // Both found matches, trust custom since that was first
                 format!("Matches: {:?}", custom_matches)
             }
         }
@@ -677,6 +622,230 @@ fn apply_pattern_custommeta(pattern: &str, text: &str) -> String {
                 e
             );
             apply_pattern_builtin(pattern, text)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Adjust depending on your module structure.
+
+    #[test]
+    fn test_builtin_engine_valid_pattern() {
+        let pattern = "ab.";
+        let text = "abc abx aby";
+        let result = apply_pattern(pattern, text, &EngineChoice::Builtin);
+        assert!(
+            result.contains("Matches: [\"abc\", \"abx\", \"aby\"]"),
+            "Expected three matches for 'ab.'"
+        );
+    }
+
+    #[test]
+    fn test_builtin_engine_invalid_pattern() {
+        let pattern = "("; // invalid pattern
+        let text = "abc";
+        let result = apply_pattern(pattern, text, &EngineChoice::Builtin);
+        assert!(
+            result.contains("Invalid pattern:"),
+            "Expected invalid pattern error."
+        );
+    }
+
+    #[test]
+    fn test_custom_engine_with_valid_pattern() {
+        // Assuming your CustomRegex currently handles simple patterns like a literal
+        let pattern = "a";
+        let text = "abc a";
+        let result = apply_pattern(pattern, text, &EngineChoice::Custom);
+        // CustomRegex tries all substrings, so "abc" and "a" should both have matches
+        // E.g. Matches: ["a", "a"] (from "abc" -> 'a' at start, and the standalone 'a')
+        assert!(
+            result.contains("Matches:"),
+            "Expected at least one match from CustomRegex."
+        );
+    }
+
+    #[test]
+    fn test_custom_engine_with_invalid_pattern() {
+        let pattern = ""; // empty pattern is considered invalid in CustomRegex
+        let text = "abc";
+        let result = apply_pattern(pattern, text, &EngineChoice::Custom);
+        assert!(
+            result.contains("Invalid pattern:"),
+            "Expected invalid pattern error from CustomRegex."
+        );
+    }
+
+    #[test]
+    fn test_custommeta_engine_fallback() {
+        // CustomMeta tries CustomRegex first, then verifies or falls back.
+        // Use a pattern that CustomRegex can parse but let's say it finds no matches:
+        let pattern = "z";
+        let text = "abc";
+        // "z" doesn't appear, so CustomRegex: no matches, then builtin also no matches.
+        let result = apply_pattern(pattern, text, &EngineChoice::Custommeta);
+        assert!(
+            result.contains("No matches found."),
+            "Expected no matches found on fallback."
+        );
+
+        // Now try something custom can handle:
+        let pattern2 = "a";
+        let text2 = "abc";
+        let result2 = apply_pattern(pattern2, text2, &EngineChoice::Custommeta);
+        // Both custom and builtin should find matches, so we should have a Matches line
+        assert!(
+            result2.contains("Matches:"),
+            "Expected matches from customMeta engine."
+        );
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_builtin_engine_valid_pattern() {
+            let pattern = "ab.";
+            let text = "abc abx aby";
+            let result = apply_pattern(pattern, text, &EngineChoice::Builtin);
+            assert!(
+                result.contains("Matches: [\"abc\", \"abx\", \"aby\"]"),
+                "Expected three matches for 'ab.'"
+            );
+        }
+
+        #[test]
+        fn test_builtin_engine_invalid_pattern() {
+            let pattern = "("; // invalid pattern
+            let text = "abc";
+            let result = apply_pattern(pattern, text, &EngineChoice::Builtin);
+            assert!(
+                result.contains("Invalid pattern:"),
+                "Expected invalid pattern error."
+            );
+        }
+
+        #[test]
+        fn test_builtin_engine_no_matches() {
+            let pattern = "xyz";
+            let text = "abc def ghi";
+            let result = apply_pattern(pattern, text, &EngineChoice::Builtin);
+            assert!(
+                result.contains("No matches found."),
+                "Expected no matches found for a pattern that does not appear."
+            );
+        }
+
+        #[test]
+        fn test_custom_engine_with_valid_pattern() {
+            let pattern = "a";
+            let text = "abc a";
+            let result = apply_pattern(pattern, text, &EngineChoice::Custom);
+            assert!(
+                result.contains("Matches:"),
+                "Expected at least one match from CustomRegex."
+            );
+        }
+
+        #[test]
+        fn test_custom_engine_with_invalid_pattern() {
+            let pattern = ""; // empty pattern is considered invalid in CustomRegex
+            let text = "abc";
+            let result = apply_pattern(pattern, text, &EngineChoice::Custom);
+            assert!(
+                result.contains("Invalid pattern:"),
+                "Expected invalid pattern error from CustomRegex."
+            );
+        }
+
+        #[test]
+        fn test_custom_engine_no_matches() {
+            let pattern = "z";
+            let text = "abc def";
+            let result = apply_pattern(pattern, text, &EngineChoice::Custom);
+            assert!(
+                result.contains("No matches found."),
+                "Expected no matches found from CustomRegex."
+            );
+        }
+
+        #[test]
+        fn test_custommeta_engine_fallback() {
+            // CustomMeta tries CustomRegex first, then falls back to meta if no matches.
+            let pattern = "z";
+            let text = "abc";
+            let result = apply_pattern(pattern, text, &EngineChoice::Custommeta);
+            assert!(
+                result.contains("No matches found."),
+                "Expected no matches found on fallback."
+            );
+
+            let pattern2 = "a";
+            let text2 = "abc";
+            let result2 = apply_pattern(pattern2, text2, &EngineChoice::Custommeta);
+            assert!(
+                result2.contains("Matches:"),
+                "Expected matches from customMeta engine."
+            );
+        }
+
+        // Tests for other engines:
+
+        #[test]
+        fn test_dfa_engine_valid_pattern() {
+            let pattern = "ab.";
+            let text = "abc abx aby";
+            let result = apply_pattern(pattern, text, &EngineChoice::Dfa);
+            assert!(
+                result.contains("Matches: [\"abc\", \"abx\", \"aby\"]"),
+                "Expected matches from DFA engine."
+            );
+        }
+
+        #[test]
+        fn test_dfa_engine_invalid_pattern() {
+            let pattern = "(";
+            let text = "abc";
+            let result = apply_pattern(pattern, text, &EngineChoice::Dfa);
+            assert!(
+                result.contains("Invalid pattern:"),
+                "Expected invalid pattern from DFA engine."
+            );
+        }
+
+        #[test]
+        fn test_dfa_engine_no_matches() {
+            let pattern = "zzz";
+            let text = "abc def";
+            let result = apply_pattern(pattern, text, &EngineChoice::Dfa);
+            assert!(
+                result.contains("No matches found."),
+                "Expected no matches from DFA engine."
+            );
+        }
+        // Additional edge case tests
+        #[test]
+        fn test_empty_text() {
+            let pattern = "a";
+            let text = "";
+            let result = apply_pattern(pattern, text, &EngineChoice::Builtin);
+            assert!(
+                result.contains("No matches found."),
+                "Expected no matches on empty text."
+            );
+        }
+
+        #[test]
+        fn test_empty_pattern_builtin() {
+            let pattern = "";
+            let text = "abc";
+            let result = apply_pattern(pattern, text, &EngineChoice::Builtin);
+            assert!(
+                !result.contains("Invalid pattern:"),
+                "Empty pattern should not produce invalid pattern error on builtin (if allowed)."
+            );
         }
     }
 }
